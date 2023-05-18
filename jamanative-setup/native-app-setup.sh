@@ -16,12 +16,14 @@ open_port_checker() {
             echo "Port $port is accessible."
         else
             echo "Port $port is not accessible."
+            # calls the error handler function and gives an error code, then writes it to a log file and proceeds.
             exit_code=1
             ./error_handler.sh "$exit_code"
         fi
     done
 }
 
+# skipping or only running if there's a GUI on this server/VM
 output_replicated_api_creds() {
     local env_file=".env.creds"
 
@@ -45,7 +47,10 @@ user_id_checker() {
         if ! id -u "$uid" &>/dev/null; then
             echo "User ID $uid OK."
         else
-            echo "User ID $uid is already in use. ERROR"
+            echo "User ID $uid is already in use. ERROR 2"
+            # calls the error handler function and gives an error code, then writes it to a log file and proceeds.
+            exit_code=2
+            ./error_handler.sh "$exit_code"
         fi
     done
 }
@@ -57,6 +62,9 @@ check_create_ntpdate_cronjob() {
     # Check if the cron job for ntpdate already exists
     if crontab -l | grep -q "$cron_command"; then
         echo "Cron job for ntpdate already exists."
+        # calls the error handler function and gives an error code, then writes it to a log file and proceeds.
+        exit_code=3
+        ./error_handler.sh "$exit_code"
     else
         # Add the cron job using crontab
         (
@@ -97,7 +105,8 @@ check_setup_disks() {
     local min_size=$((100 * 1024 * 1024 * 1024)) # 100GB
     if [[ $data_disk_size -lt $min_size ]]; then
         echo "Error: $data_disk size is less than 100GB."
-        return 1
+        exit_code=4
+        ./error_handler.sh "$exit_code"
     fi
 
     # Check if volume group exists on /dev/sdb
@@ -117,6 +126,8 @@ check_setup_disks() {
         echo "Volume group $vg_name and logical volumes created successfully."
     else
         echo "Volume group $vg_name already exists on $data_disk."
+        exit_code=5
+        ./error_handler.sh "$exit_code"
     fi
 }
 
@@ -267,37 +278,32 @@ main_funct() {
     check_add_lines_to_fstab
     check_configure_elasticsearch
     # if all other functions succeeded, mounts all volumes.
-    echo "Preparation complete. Unless a previous function errored, you should be ready to run the cURL command to install Jama Connect."
-    sleep 5
+    echo "Preparation complete. Mounting volumes and performing software installation..."
+    sleep 10
     mount -a
-    echo "Next you need credentials and a license file from Replicated's vendor dashboard, don't proceed until you have them."
+    #echo "Next you need credentials and a license file from Replicated's vendor dashboard, don't proceed until you have them."
     # get_replicated_app_api_token
     # install_docker_20_10_7
+    echo "Installing replicated, and then Jama Connect. Almost done..."
+    sleep 10
     install_replicated_cli
+    install_jama_curl
 }
 
-# sudo echo "Jama Connect Docker Native - App Server Setup"
-# sleep 5
-# main_funct
-# read -p "Did everything else run successfully? If so, type yes to install Jama. Otherwise the script will end and you can review the console here for errors and troubleshooting. " response
-# if [[ "$response" != "yes" ]]; then
-#     echo "Operation canceled. Exiting."
-#     exit 1
-# fi
 install_jama_curl() {
-    sudo echo "Jama Connect Docker Native - App Server Setup"
-    sleep 5
-    main_funct
     read -p "Did everything else run successfully? If so, type yes to install Jama. Otherwise the script will end and you can review the console here for errors and troubleshooting. " response
     if [[ "$response" != "yes" ]]; then
         echo "Operation canceled. Exiting."
         err_msg = "User failed to type 'yes' to continue."
         exit 12
     else
-
+        curl -sSL "https://get.replicated.com/docker?replicated_tag=2.53.2&replicated_ui_tag=2.53.2&replicated_operator_tag=2.53.2" | sudo bash -s no-auto
+        clear
+        echo "Jama Connect should now be completely installed. See above for Admin/Setup URL at port 8800."
     fi
 
 }
 
-
-handle_errors
+sudo echo "Jama Connect Docker Native - App Server Setup"
+sleep 5
+main_funct
