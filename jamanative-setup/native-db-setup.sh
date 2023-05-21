@@ -13,12 +13,14 @@ function error_handler() {
   # gets name of the failing function and the error message, and adds them to log_file.txt
   local function_name="${FUNCNAME[1]}"
   local error_message="$1"
+  current_time=$(date +%T)
+  echo "Current time: $current_time"
 
   echo "Error in function: $function_name"
   echo "Error message: $error_message"
 
   # Append to log file
-  echo "Function: $function_name, Error: $error_message" >>"$log_file"
+  echo "Current time: $current_time - Function: $function_name, Error: $error_message" >>"$log_file"
 }
 
 # called to check if log_file.txt exists, and if my.cnf exists
@@ -69,7 +71,7 @@ function check_sql_connectivity() {
 function check_database_service() {
   if systemctl is-active --quiet mysql.service; then
     mysql_version=$(mysql --version | awk '{print $5}')
-    mysql_ver_msg="MySQL version $mysql_version detected."
+    mysql_ver_msg="Success - MySQL version $mysql_version detected."
     error_handler "$mysql_ver_msg"
     echo "Checking for expected lines in my.cnf and will apply updates to it if not present..."
     # Report success to console and error log to ensure we're aware.
@@ -86,7 +88,7 @@ function check_database_service() {
     read -p "Do you want to install MySQL 8? (y/n): " response
     if [[ "$response" == "y" ]]; then
       install_mysql_server || { error_handler "MySQL 8 installation failed, exiting." && exit 1; }
-      error_handler "MySQL installation successful"
+      error_handler "Success - MySQL installation successful"
       if ! backup_and_update_mysql_config; then
         error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled" && return 0
       fi
@@ -95,7 +97,7 @@ function check_database_service() {
       exit 1
     fi
     check_sql_connectivity || { error_handler "SQL connection test failed. Verify IP and credentials are correct." && exit 1; }
-    error_handler "SQL connection test passed"
+    error_handler "Success - SQL connection test passed"
   fi
 }
 
@@ -165,4 +167,6 @@ check_database_service
 # calling backup_and_update_mysql_config during the version test IF
 # MySQL was detected so it won't error incorrectly on MSSQL servers
 
-echo "Preflight checks complete."
+error_handler "Success - All tests passed."
+# prints log_file.txt to console for review
+cat log_file.txt
