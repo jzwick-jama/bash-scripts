@@ -4,6 +4,47 @@
 #
 # - https://help.jamasoftware.com/ah/en/installing-jama-connect--traditional-/things-to-do-before-installation--traditional-/prepare-your-application-server--traditional-.html
 
+
+log_file="log_file.txt"
+
+# start of error handler as single-function test.
+
+# to verify the log functions are working, at the end of the error handler is a self-test.
+# if you run this as is and see the echoed string, it's working as expected. Your function 
+# to test goes after the error handler, and the function call at the second to last line, 
+# with the last line verifying it proceeded.
+
+function create_log_file() {
+  if [[ ! -f "$log_file" ]]; then
+    touch "$log_file"
+    echo "Created log file: $log_file"
+    return 0
+  fi
+}
+
+function error_handler() {
+  local function_name="${FUNCNAME[1]}"
+  local error_message="$1"
+  
+  echo "Error in function: $function_name"
+  echo "Error message: $error_message"
+  
+  # Append to log file
+  echo "Function: $function_name, Error: $error_message" >> "$log_file"
+}
+
+function check_file_existence() {
+  local x="$1"
+  if [[ -f "$x" ]]; then
+    echo "File exists: $x"
+  else
+    error_handler "${FUNCNAME[0]}" "File does not exist: $x"
+    return 0
+  fi
+}
+
+# End of error handler
+
 # open port checking
 open_port_checker() {
     echo "Verifying required TCP/IP ports are open and accessible"
@@ -15,13 +56,15 @@ open_port_checker() {
         if nc -z -v -w5 127.0.0.1 "$port" &>/dev/null; then
             echo "Port $port is accessible."
         else
-            echo "Port $port is not accessible."
+            port_not_accessible="Port $port is not accessible."
             # calls the error handler function and gives an error code, then writes it to a log file and proceeds.
-            exit_code=1
-            ./error_handler.sh "$exit_code"
+            error_handler "port_not_accessible"
+            return 0
         fi
+
     done
-}
+    event_handler "All ports passed tests"
+    }
 
 # skipping or only running if there's a GUI on this server/VM
 output_replicated_api_creds() {
@@ -46,11 +89,12 @@ user_id_checker() {
     for uid in "${user_ids[@]}"; do
         if ! id -u "$uid" &>/dev/null; then
             echo "User ID $uid OK."
+            return 0
         else
-            echo "User ID $uid is already in use. ERROR 2"
+            uids_in_use="User ID $uid is already in use. ERROR 2"
             # calls the error handler function and gives an error code, then writes it to a log file and proceeds.
-            exit_code=2
-            ./error_handler.sh "$exit_code"
+            error_handler "$uids_in_use"
+            return 0
         fi
     done
 }
@@ -61,17 +105,17 @@ check_create_ntpdate_cronjob() {
 
     # Check if the cron job for ntpdate already exists
     if crontab -l | grep -q "$cron_command"; then
-        echo "Cron job for ntpdate already exists."
+        cronjob_already_exists="Cron job for ntpdate already exists."
         # calls the error handler function and gives an error code, then writes it to a log file and proceeds.
-        exit_code=3
-        ./error_handler.sh "$exit_code"
+        error_handler "$cronjob_already_exists"
     else
         # Add the cron job using crontab
         (
             crontab -l 2>/dev/null
             echo "$cron_schedule $cron_command"
         ) | crontab -
-        echo "Cron job for ntpdate created successfully."
+        cron_updated="Cron job for ntpdate created successfully."
+        error_handler "$cron_updated"
     fi
 }
 
@@ -84,29 +128,32 @@ check_setup_disks() {
     # Check if there are two hard disks
     local num_disks=$(lsblk -d -o name | wc -l)
     if [[ $num_disks -lt 2 ]]; then
-        echo "Error: At least two hard disks are required."
-        return 1
+        two_volumes_required="Error: At least two volumes are required."
+        error_handler "$two_volumes_required."
+        exit 1
     fi
 
     # Check if OS is installed on /dev/sda
     if [[ "$(readlink -f /)" != "$os_disk" ]]; then
-        echo "Error: OS is not installed on $os_disk."
-        return 1
+        os_not_installed="Error: OS is not installed on $os_disk."
+        error_handler "$os_not_installed. Stopping script so partitions can be reviewed."
+        exit 1
     fi
 
     # Check if /dev/sdb exists
     if [[ ! -b "$data_disk" ]]; then
-        echo "Error: $data_disk does not exist."
-        return 1
+        disk_doesnt_exist="Error: $data_disk does not exist. Stopping script so disk can be deleted and rebuilt."
+        error_handler "$disk_too_small"
+        exit 1
     fi
 
     # Check if /dev/sdb is 100GB or larger
     local data_disk_size=$(lsblk -b -n -o size "$data_disk")
     local min_size=$((100 * 1024 * 1024 * 1024)) # 100GB
     if [[ $data_disk_size -lt $min_size ]]; then
-        echo "Error: $data_disk size is less than 100GB."
-        exit_code=4
-        ./error_handler.sh "$exit_code"
+        disk_too_small="Error: $data_disk size is less than 100GB. Stopping script so disk can be deleted and rebuilt."
+        error_handler "$disk_too_small"
+        exit 1
     fi
 
     # Check if volume group exists on /dev/sdb
@@ -114,7 +161,7 @@ check_setup_disks() {
         echo "Creating volume group $vg_name on $data_disk..."
 
         # Delete existing volumes on /dev/sdb
-        lvremove -f "/dev/$vg_name" &>/dev/null
+        lvremove -f "/dev/$vg_name" &> /dev/null
 
         # Create volume group and logical volumes
         vgcreate "$vg_name" "$data_disk"
@@ -123,11 +170,13 @@ check_setup_disks() {
         lvcreate -L 10G -n lv_logs "$vg_name"
         lvcreate -l 100%FREE -n lv_data "$vg_name"
 
-        echo "Volume group $vg_name and logical volumes created successfully."
+        volume_success="Volume group $vg_name and logical volumes created successfully."
+        error_handler "$volume_success"
+        return 0
     else
-        echo "Volume group $vg_name already exists on $data_disk."
-        exit_code=5
-        ./error_handler.sh "$exit_code"
+        vg_name_already_exists="Volume group $vg_name already exists on $data_disk. Stopping script; please review the disk partitions before continuing"
+        error_handler "$vg_name_already_exists"
+        exit 1
     fi
 }
 
@@ -137,7 +186,7 @@ warn_and_confirm() {
     read -p "Warning: This operation may be destructive and will be performed on $device. Are you sure you want to continue? (Type 'yes' to confirm, anything else ends the installer.): " response
 
     if [[ "$response" != "yes" ]]; then
-        echo "Operation canceled. Exiting."
+        echo "Operation canceled. Restart the script to start again."
         exit 1
     fi
 }
@@ -154,8 +203,9 @@ check_add_lines_to_fstab() {
     if [[ -f "/etc/fstab" ]]; then
         fstab_content=$(cat /etc/fstab)
     else
-        echo "Error: /etc/fstab does not exist."
-        return 1
+        fstab_file_doesnt_exist="Error: /etc/fstab does not exist."
+        error_handler
+        return 0
     fi
 
     local added_lines=0
@@ -163,18 +213,25 @@ check_add_lines_to_fstab() {
     # Check if each line already exists in /etc/fstab
     for line in "${fstab_lines[@]}"; do
         if grep -Fxq "$line" <<<"$fstab_content"; then
-            echo "Line already exists in /etc/fstab: $line"
+            line_already_exists="Line already exists in /etc/fstab: $line"
+            error_handler "$line_already_exists"
+            return 0
         else
             echo "$line" | sudo tee -a /etc/fstab
-            echo "Added line to /etc/fstab: $line"
+            fstab_message="Added line to /etc/fstab: $line"
+            error_handler="$fstab_message"
             ((added_lines++))
+
         fi
     done
 
     if [[ $added_lines -eq 0 ]]; then
-        echo "No new lines added to /etc/fstab."
+        fstab_failed="No new lines added to /etc/fstab."
+        echo "$fstab_failed"
+        error_handler "$fstab_failed"
     else
         echo "Added $added_lines new line(s) to /etc/fstab."
+        error_handler "fstab success; added $added_lines lines to /etc/fstab."
     fi
 }
 
@@ -186,7 +243,9 @@ check_configure_elasticsearch() {
 
     # Check if the setting already exists in /etc/sysctl.conf
     if grep -q "$elasticsearch_setting" "$sysctl_file"; then
-        echo "The Elasticsearch setting is already present in $sysctl_file."
+        elasticsearch_msg="The Elasticsearch setting is already present in $sysctl_file."
+        error_handler "$elasticsearch_msg"
+        return 0
     else
         # Add the setting to /etc/sysctl.conf
         echo "$elasticsearch_setting" | sudo tee -a "$sysctl_file"
@@ -198,15 +257,20 @@ check_configure_elasticsearch() {
         echo "You should see the line 'vm.max_map_count=262144' in the following output:"
 
         # Check if the setting is applied
-        sudo sysctl -a | grep "max_map_count"
-
+        test_settings = { sudo sysctl -a | grep "max_map_count" }
+        echo $test_settings
+        if [[ "$test_settings" != "vm.max_map_count=262144"]]
+            error_handler "max_map_count test failed"
+            return 0
         # Prompt the user to confirm if the setting is applied
-        read -p "Did you see 'vm.max_map_count=262144' in the output? (Y/N): " response
+        read -p "Did you see 'vm.max_map_count=262144' in the output above? (Y/N): " response
 
         if [[ "$response" == [Yy] ]]; then
-            echo "$elasticsearch_ready_message"
+            error_handler "$elasticsearch_ready_message"
+            return 0
         else
-            echo "$elasticsearch_not_ready_message"
+            error_handler "$elasticsearch_not_ready_message"
+            return 0
         fi
     fi
 }

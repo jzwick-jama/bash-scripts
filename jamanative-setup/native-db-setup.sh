@@ -1,149 +1,46 @@
 #!/bin/bash
 
-# This script runs a series of pre-flight checks on the client's DB server to make sure it is within our specs, then
-# checks to see if any of the steps before installing mysql haven't been completed yet, if so it completes them, if not
-# it proceeds to install mysql 8 and either comes with scripts that can be run from mysqlworkbench or from the command
-# line.
+log_file="log_file.txt"
+pfc_file="db_schema_preflight_checks.sh"
 
-# also, uses ./error_handler.sh starting at error 14 for logging and debugging.
-#
-# Version 1.0
+# start of error handler as single-function test.
 
-# Declaring script-scoped variables
-required_docker_version="20.10.7"
-error_handler_script="./error_handler.sh"
-exit_code=0
+# to verify the log functions are working, at the end of the error handler is a self-test.
+# if you run this as is and see the echoed string, it's working as expected. Your function 
+# to test goes after the error handler, and the function call at the second to last line, 
+# with the last line verifying it proceeded.
 
-preflight_docker() {
-    echo "Checking if Docker is installed and the correct version..."
-    sleep 3
-    if ! command -v docker &>/dev/null; then
-        echo "Docker is not installed"
-        exit_code=14
-        ./error_handler.sh "14"
-    else
-        # Get Docker version
-        docker_version=$(docker --version | awk '{print $3}')
-        if [[ "$docker_version" == "$required_docker_version" ]]; then
-            echo "Docker version is $required_docker_version - Success!"
-        else
-            echo "Docker version is not $required_docker_version"
-            exit_code=14
-            ./error_handler.sh "14"
-        fi
-    fi
+function create_log_file() {
+  if [[ ! -f "$log_file" ]]; then
+    touch "$log_file"
+    echo "Created log file: $log_file"
+    return 0
+  fi
 }
 
-preflight_linux_kernel() {
-    echo "Checking Linux kernel version; requires > 3.10 and Jama recommends upgrading to version 4.x of the Linux kernel."
-    required_version="4.0"
-    kernel_version=$(uname -r)
-
-    if [[ $(echo -e "$required_version\n$kernel_version" | sort -V | head -n1) == "$required_version" ]]; then
-        echo "Kernel version is $kernel_version - Pass"
-    elif [[ $(echo -e "$required_version\n$kernel_version" | sort -V | head -n1) == "$kernel_version" ]]; then
-        if [[ $(echo -e "$kernel_version\n3.10" | sort -V | head -n1) == "3.10" ]]; then
-            echo "Kernel version is $kernel_version - Warning: Consider upgrading to 4.x"
-        else
-            echo "Kernel version is $kernel_version - Error: Please upgrade to a kernel version >= 4.x"
-            exit_code=15
-            ./error_handler.sh "$exit_code"
-        fi
-    fi
+function error_handler() {
+  local function_name="${FUNCNAME[1]}"
+  local error_message="$1"
+  
+  echo "Error in function: $function_name"
+  echo "Error message: $error_message"
+  
+  # Append to log file
+  echo "Function: $function_name, Error: $error_message" >> "$log_file"
 }
 
-preflight_linux_distribution() {
-    linux_distribution=$(cat /etc/*-release | grep "^ID=" | cut -d'=' -f2)
-
-    if [[ $linux_distribution != "ubuntu" && $linux_distribution != "centos" && $linux_distribution != "rhel" ]]; then
-        echo "Unsupported Linux distribution: $linux_distribution"
-        echo "This distribution may be compatible with Docker CE, but it is not explicitly tested."
-        echo "Consider using Ubuntu, Red Hat (RHEL), or CentOS for better compatibility."
-        exit_code=16
-        ./error_handler.sh "$exit_code"
-    fi
-
-    case $linux_distribution in
-    ubuntu)
-        ubuntu_version=$(lsb_release -rs)
-        if [[ $ubuntu_version == "18.04" || $ubuntu_version == "20."* ]]; then
-            echo "Test succeeded: Ubuntu $ubuntu_version"
-        else
-            echo "Unsupported Ubuntu version: $ubuntu_version"
-            echo "Please use Ubuntu 18.04.5 or a version not newer than 20.x."
-            exit_code=16
-            ./error_handler.sh "$exit_code"
-        fi
-        ;;
-    centos)
-        centos_version=$(rpm -q --queryformat '%{VERSION}' centos-release)
-        if [[ $centos_version != "7.8" ]]; then
-            echo "Unsupported CentOS version: $centos_version"
-            echo "Please use CentOS 7.8 for better compatibility."
-            exit_code=16
-            ./error_handler.sh "$exit_code"
-        else
-            echo "Test succeeded: CentOS $centos_version"
-        fi
-        ;;
-    rhel)
-        rhel_version=$(rpm -q --queryformat '%{VERSION}' redhat-release)
-        if [[ $rhel_version != "7.8" && $rhel_version != "8.4" ]]; then
-            echo "Unsupported Red Hat (RHEL) version: $rhel_version"
-            echo "Please use Red Hat (RHEL) 7.8 or 8.4 for better compatibility."
-            exit_code=16
-            ./error_handler.sh "$exit_code"
-        else
-            echo "Test succeeded: Red Hat (RHEL) $rhel_version"
-        fi
-        ;;
-    esac
+function check_file_existence() {
+  local x="$1"
+  if [[ -f "$x" ]]; then
+    echo "File exists: $x"
+  else
+    error_handler "${FUNCNAME[0]}" "File does not exist: $x"
+    return 1
+  fi
 }
 
-preflight_db_server_version() {
-    # Check if MSSQL Server is running
-    mssql_server=$(systemctl is-active mssql-server)
-    if [[ $mssql_server == "active" ]]; then
-        mssql_version=$(sqlcmd -Q "SELECT SERVERPROPERTY('ProductVersion') AS Version" -t 1 | awk -F "." '{print $1}')
-        if [[ $mssql_version == "14" || $mssql_version == "15" ]]; then
-            echo "MSSQL Server $mssql_version - Success!"
-        else
-            echo "Unsupported MSSQL Server version: $mssql_version"
-            exit_code=17
-            ./error_handler.sh "$exit_code"
-        fi
-        return
-    fi
-
-    # Check if MySQL Server is running
-    mysql_server=$(systemctl is-active mysql)
-    if [[ $mysql_server == "active" ]]; then
-        mysql_version=$(mysql -V | awk '{print $5}')
-        if [[ $mysql_version == "8."* ]]; then
-            echo "MySQL Server $mysql_version - Success!"
-        else
-            echo "Unsupported MySQL Server version: $mysql_version"
-            exit_code=17
-            ./error_handler.sh "$exit_code"
-        fi
-        return
-    fi
-
-    echo "No MSSQL Server or MySQL Server found."
-    exit_code=17
-    ./error_handler.sh "$exit_code"
-}
-
-preflight_scp_db_tests_to_db_server() {
-    read -p "Enter SQL server IP address: " sql_server_ip
-    read -p "Enter SQL server port: " sql_port
-    read -p "Enter SQL server root password: " -s root_password
-    echo
-
-    # Encrypt root password using base64
-    encrypted_password=$(echo "$root_password" | base64)
-}
-
+# End of error handler
+# Your function goes between here
 # Function to generate db_schema_preflight_checks.sh file
 generate_preflight_checks_script() {
     # Create db_schema_preflight_checks.sh file
@@ -152,13 +49,13 @@ generate_preflight_checks_script() {
 
 # Function to decrypt and store root password
 decrypt_and_store_password() {
-    encrypted_password="$encrypted_password"
+    encrypted_password="\$encrypted_password"
     root_password=\$(echo "\$encrypted_password" | base64 -d)
 }
 
 # Store SQL server IP address and port
-sql_server_ip="$sql_server_ip"
-sql_port="$sql_port"
+sql_server_ip="\$sql_server_ip"
+sql_port="\$sql_port"
 
 # Function to check SQL server type and establish test connection
 check_sql_server_type() {
@@ -187,54 +84,92 @@ decrypt_and_store_password
 # Call the check_sql_server_type function
 check_sql_server_type
 EOF
-
+    
     # Set permissions for the script file
     chmod +x db_schema_preflight_checks.sh
 }
 
-# Call the prompt_sql_server_details function
-prompt_sql_server_details
-
-# Call the generate_preflight_checks_script function
-generate_preflight_checks_script
-
-# Print success message
-echo "db_schema_preflight_checks.sh file generated successfully."
-
-# Verify db_schema_preflight_checks.sh file exists
-if [ -f "db_schema_preflight_checks.sh" ]; then
-    read -p "Enter the name of a user account on the DB server: " user_account
-    # Copy the script file to the user's home directory on the DB server using scp
-    scp db_schema_preflight_checks.sh "$user_account@$sql_server_ip:~/"
-
-    # Check if scp command exited successfully
-    if [ $? -eq 0 ]; then
-        echo "db_schema_preflight_checks.sh file copied to $user_account@$sql_server_ip:~/"
-        echo "To complete testing, please SSH to the DB server, run 'chmod 777 db_schema_preflight_checks.sh' and execute the script."
-        echo "SSH Command: ssh $user_account@$sql_server_ip"
+# checks what version of My/MSSQL they have or the test fails if neither is detected.
+check_database_service() {
+    if systemctl is-active --quiet mysql.service; then
+        mysql_version=$(mysql --version | awk '{print $5}')
+        mysql_ver_msg="MySQL version $mysql_version detected."
+        # reports success to console and error log to be sure we know.
+        backup_and_update_mysql_config || error_handler "cant find my.cnf, check MySQL installation."        
+    elif systemctl is-active --quiet mssql; then
+        mssql_version=$(mssql-conf -Q 'SELECT @@VERSION' | grep -o 'Microsoft SQL Server [0-9]\+\.[0-9]\+\.[0-9]\+')
+        mssql_ver_msg="MSSQL version $mssql_version detected."
+        # reports success to console and error log to be sure we know.
+        echo $mssql_ver_msg && error_handler "$mssql_ver_msg"
     else
-        exit_code=20
-        ./error_handler.sh "$exit_code"
+        echo "Error: Neither MySQL nor MSSQL installed on localhost."
+        # Test absolutely fails here, with no SQL on server there's no point in continuing.
+        # for now, verify version with console or logfile. No version test yet.
+        exit 1
     fi
-else
-    echo "db_schema_preflight_checks.sh file not found."
-    exit_code=21
-    ./error_handler.sh "$exit_code"
-fi
-
-main() {
-    echo "Starting preflight test sequence..."
-    preflight_docker
-    preflight_linux_kernel
-    preflight_linux_distribution
-    echo "Basic preflight test sequence complete."
-    sleep 3
-    echo "Starting DB server-specific preflight check sequence..."
-    preflight_db_server_version
-    echo "Generating db_schema_preflight_checks.sh locally and copying to DB server via SCP..."
-    preflight_scp_db_tests_to_db_server
-    echo "Copy complete. Please connect to the database server via SSH and run db_schema_preflight_checks.sh from your home directory to complete testing."
-    echo "If any errors were reported while running this script, please check ./error.log for more details"
+    read -P ""
+    test_sql_connection_bothversions ||
 }
 
-main
+backup_and_update_mysql_config() {
+  if [ -f "/etc/mysql/my.cnf" ]; then
+    # Backup the original my.cnf file
+    sudo cp /etc/mysql/my.cnf /etc/mysql/my.cnf.old
+
+    # Check if [mysqld] is present in my.cnf
+    if grep -q "\[mysqld\]" /etc/mysql/my.cnf; then
+      # Check if wait_timeout=259200 is present in my.cnf
+      if ! grep -q "wait_timeout=259200" /etc/mysql/my.cnf; then
+        # Append the block to my.cnf
+        printf "\n[mysqld]\nbind-address=0.0.0.0\nkey_buffer_size=16M\nmax_allowed_packet=1G\nthread_stack=192K\nthread_cache_size=8\ntmp_table_size=2G\nmax_heap_table_size=2G\ntable_open_cache=512\ninnodb_buffer_pool_size=12G\ninnodb_log_file_size=256M\ninnodb_log_buffer_size=12M\ninnodb_thread_concurrency=16\nmax_connections=351\nwait_timeout=259200\n" | sudo tee -a /etc/mysql/my.cnf > /dev/null
+      fi
+    else
+      # Append the entire block to my.cnf
+      printf "\n[mysqld]\nbind-address=0.0.0.0\nkey_buffer_size=16M\nmax_allowed_packet=1G\nthread_stack=192K\nthread_cache_size=8\ntmp_table_size=2G\nmax_heap_table_size=2G\ntable_open_cache=512\ninnodb_buffer_pool_size=12G\ninnodb_log_file_size=256M\ninnodb_log_buffer_size=12M\ninnodb_thread_concurrency=16\nmax_connections=351\nwait_timeout=259200\n" | sudo tee -a /etc/mysql/my.cnf > /dev/null
+    fi
+  else
+    echo "The my.cnf file does not exist."
+    return 1
+  fi
+}
+
+# Checks the SQL connection depending on the type that was detected earlier. 
+# If none was detected theoretically this should never appear, but just in case...
+function test_sql_connection_bothversions() {
+    if [ -n "$mysql_version" ]; then
+        # Define MySQL credentials and script path
+        MYSQL_USER=(read -p "Enter username:")
+        MYSQL_PASSWORD=(read -p "Enter password:")
+        SCRIPT_PATH=(read -p "Please type the full path and filename of the SQL Configuration Scripts. Default is ./")
+        # Call the SQL script using the mysql command-line tool
+        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" < "$SCRIPT_PATH"
+        return 0
+    elif [ -n "$mssql_version" ]; then
+        SQL_SERVER=(read -p "What is the hostname of your SQL server?")
+        SQL_USER=(read -p "Enter username:")
+        SQL_PASSWORD=(read -p "Enter password:")
+        SCRIPT_PATH=(read -p "Please type the full path and filename of the SQL Configuration Scripts. Default is ./")
+        # Call the script using the sqlcmd command-line tool
+        sqlcmd -S "$SQL_SERVER" -U "$SQL_USER" -P "$SQL_PASSWORD" -i "$SCRIPT_PATH"
+        return 0
+    else
+        error_handler "Unable to test SQL connection, neither supported version was detected."
+        exit 1
+}
+# and here
+
+# Example of a command being called checking that a file exists, and if not creates it and proceeds
+check_file_existence "$log_file" || { create_log_file && error_handler "log_file did not exist, created log_file.txt in current working dir."; }
+generate_preflight_checks_script
+check_file_existence "$pfc_file" || error_handler "failed to create $pfc_file."
+check_database_service
+# test fails here if no SQL installed.
+
+# calling backup_and_update_mysql_config IF MySQL was detected so it won't error incorrectly on MSSQL servers 
+# (called during the version test):
+
+# backup_and_update_mysql_config || error_handler "cant find my.cnf, check MySQL installation."
+# (called if the version test passed but connection failed.)
+
+echo "Success! All functions have run as expected."
+
