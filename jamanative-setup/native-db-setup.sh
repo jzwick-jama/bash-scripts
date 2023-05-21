@@ -96,8 +96,6 @@ function check_database_service() {
       error_handler "No SQL installed. User cancelled MySQL 8 setup. Exiting."
       exit 1
     fi
-    check_sql_connectivity || { error_handler "SQL connection test failed. Verify IP and credentials are correct." && exit 1; }
-    error_handler "Success - SQL connection test passed"
   fi
 }
 
@@ -166,7 +164,9 @@ check_database_service
 
 # calling backup_and_update_mysql_config during the version test IF
 # MySQL was detected so it won't error incorrectly on MSSQL servers
-
+check_sql_connectivity || error_handler "SQL connection test failed. Verify IP and credentials are correct." && exit 1; 
+error_handler "Success - SQL connection test passed"
 error_handler "Success - All tests passed."
+
 # prints log_file.txt to console for review
 cat log_file.txt
