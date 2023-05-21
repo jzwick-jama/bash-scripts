@@ -1,7 +1,8 @@
 #!/bin/bash
 
 log_file="log_file.txt"
-pfc_file="db_schema_preflight_checks.sh"
+perform_mysql_install=(read -p )
+perform_mysql_configuration=0
 
 # start of error handler as single-function test.
 
@@ -43,7 +44,7 @@ function check_file_existence() {
 install_mysql_server() {
   mysql_install_failed=0
   mysql_install_complete=0
-  { sudo apt-get update && sudo apt install mysql-server -y } ||   error_handler "mysql_install_failed"
+  { sudo apt-get update && sudo apt install mysql-server -y } || error_handler "mysql_install_failed"
   mysql_secure_installation
 }
 
@@ -66,7 +67,7 @@ check_database_service() {
         exit 1
     fi
     read -P ""
-    test_sql_connection_bothversions ||
+    test_sql_connection_bothversions || error_handler "Connection test failed."
 }
 
 backup_and_update_mysql_config() {
@@ -126,5 +127,5 @@ check_database_service
 
 # backup_and_update_mysql_config || error_handler "cant find my.cnf, check MySQL installation."
 # (called if the version test passed but connection failed.)
-echo "Success! All functions have run as expected."
+echo "Preflight checks complete."
 
