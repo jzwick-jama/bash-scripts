@@ -4,43 +4,44 @@
 #
 # - https://help.jamasoftware.com/ah/en/installing-jama-connect--traditional-/things-to-do-before-installation--traditional-/prepare-your-application-server--traditional-.html
 
-
 log_file="log_file.txt"
 
 # start of error handler as single-function test.
 
 # to verify the log functions are working, at the end of the error handler is a self-test.
-# if you run this as is and see the echoed string, it's working as expected. Your function 
-# to test goes after the error handler, and the function call at the second to last line, 
+# if you run this as is and see the echoed string, it's working as expected. Your function
+# to test goes after the error handler, and the function call at the second to last line,
 # with the last line verifying it proceeded.
 
 function create_log_file() {
-  if [[ ! -f "$log_file" ]]; then
-    touch "$log_file"
-    echo "Created log file: $log_file"
-    return 0
-  fi
+    if [[ ! -f "$log_file" ]]; then
+        touch "$log_file"
+        echo "Created log file: $log_file"
+        return 0
+    fi
 }
 
 function error_handler() {
-  local function_name="${FUNCNAME[1]}"
-  local error_message="$1"
-  
-  echo "Error in function: $function_name"
-  echo "Error message: $error_message"
-  
-  # Append to log file
-  echo "Function: $function_name, Error: $error_message" >> "$log_file"
+    local function_name="${FUNCNAME[1]}"
+    local error_message="$1"
+    current_time=$(date +%T)
+
+    echo "Current time: $current_time"
+    echo "Error in function: $function_name"
+    echo "Error message: $error_message"
+
+    # Append to log file
+    echo "Current time: $current_time - Function: $function_name, Error: $error_message" >>"$log_file"
 }
 
 function check_file_existence() {
-  local x="$1"
-  if [[ -f "$x" ]]; then
-    echo "File exists: $x"
-  else
-    error_handler "${FUNCNAME[0]}" "File does not exist: $x"
-    return 0
-  fi
+    local x="$1"
+    if [[ -f "$x" ]]; then
+        echo "File exists: $x"
+    else
+        error_handler "${FUNCNAME[0]}" "File does not exist: $x"
+        return 0
+    fi
 }
 
 # End of error handler
@@ -64,7 +65,7 @@ open_port_checker() {
 
     done
     event_handler "All ports passed tests"
-    }
+}
 
 # skipping or only running if there's a GUI on this server/VM
 output_replicated_api_creds() {
@@ -161,7 +162,7 @@ check_setup_disks() {
         echo "Creating volume group $vg_name on $data_disk..."
 
         # Delete existing volumes on /dev/sdb
-        lvremove -f "/dev/$vg_name" &> /dev/null
+        lvremove -f "/dev/$vg_name" &>/dev/null
 
         # Create volume group and logical volumes
         vgcreate "$vg_name" "$data_disk"
@@ -257,11 +258,12 @@ check_configure_elasticsearch() {
         echo "You should see the line 'vm.max_map_count=262144' in the following output:"
 
         # Check if the setting is applied
-        test_settings = { sudo sysctl -a | grep "max_map_count" }
-        echo $test_settings
-        if [[ "$test_settings" != "vm.max_map_count=262144"]]
-            error_handler "max_map_count test failed"
-            return 0
+        test_settings=$(sudo sysctl -a | grep "max_map_count")
+        echo "$test_settings"
+        if "$test_settings" != "vm.max_map_count=262144"; then
+            error_handler "max_map_count test failed" && return 0
+        fi
+
         # Prompt the user to confirm if the setting is applied
         read -p "Did you see 'vm.max_map_count=262144' in the output above? (Y/N): " response
 
