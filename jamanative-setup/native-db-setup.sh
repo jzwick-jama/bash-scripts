@@ -66,12 +66,7 @@ check_database_service() {
         # for now, verify version with console or logfile. No version test yet.
         exit 1
     fi
-    read -P ""
-<<<<<<< HEAD
-    test_sql_connection_bothversions || error_handler "Connection test failed."
-=======
     test_sql_connection_bothversions || error_handler "SQL connection test failed."
->>>>>>> b593983affe3c873f351b836457c5daef7426598
 }
 
 backup_and_update_mysql_config() {
