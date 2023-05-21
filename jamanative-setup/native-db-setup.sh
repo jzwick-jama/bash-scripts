@@ -9,15 +9,8 @@ log_file="log_file.txt"
 # to test goes after the error handler, and the function call at the second to last line,
 # with the last line verifying it proceeded.
 
-function create_log_file() {
-  if [[ ! -f "$log_file" ]]; then
-    touch "$log_file"
-    echo "Created log file: $log_file"
-    return 0
-  fi
-}
-
 function error_handler() {
+  # gets name of the failing function and the error message, and adds them to log_file.txt
   local function_name="${FUNCNAME[1]}"
   local error_message="$1"
 
@@ -28,6 +21,7 @@ function error_handler() {
   echo "Function: $function_name, Error: $error_message" >>"$log_file"
 }
 
+# called to check if log_file.txt exists, and if my.cnf exists
 function check_file_existence() {
   local x="$1"
   if test -f "$x"; then
@@ -39,6 +33,16 @@ function check_file_existence() {
   fi
 }
 
+# called if no log_file.txt detected, skips if it detects log_file.txt in path "."
+function create_log_file() {
+  if [[ ! -f "$log_file" ]]; then
+    touch "$log_file"
+    error_handler "Created log file: $log_file"
+    return 0
+  fi
+}
+
+# called if no SQL installation detected, skips if it detects MYSQL or MSSQL
 function install_mysql_server() {
   # Function to install MySQL server
   echo "Installing MySQL 8..."
@@ -47,12 +51,26 @@ function install_mysql_server() {
   echo "MySQL 8 installation completed."
 }
 
-# checks what version of My/MSSQL they have or the test fails if neither is detected.
+# called if either SQL version is detected within check_database_service. Tests SQL connection for both versions and reports results
+function check_sql_connectivity() {
+  if ! test_sql_connection_bothversions; then
+    error_handler "SQL connection test failed."
+    return 0
+  else
+    error_handler "SQL connection test passed."
+    return 0
+  fi
+}
+
+# called if log_file exists or was created. Checks for running mysql or mssql.service, if present, checks what version of My/MSSQL they have and notes it in log_file
+# if MySQL present, runs backup_and_update_mysql_config. if my.cnf present, backs it up and checks if a block is present and if not appends required settings to my.cnf.
+# if MySQL and no my.cnf, errors and tells user to verify it was installed right.
+# if no SQL present at all offers to install MySQL 8, then performs MySQL 8 checks.
 function check_database_service() {
   if systemctl is-active --quiet mysql.service; then
     mysql_version=$(mysql --version | awk '{print $5}')
     mysql_ver_msg="MySQL version $mysql_version detected."
-    echo "$mysql_ver_msg"
+    error_handler "$mysql_ver_msg"
     echo "Checking for expected lines in my.cnf and will apply updates to it if not present..."
     # Report success to console and error log to ensure we're aware.
     if ! backup_and_update_mysql_config; then
@@ -62,51 +80,58 @@ function check_database_service() {
     mssql_version=$(mssql-conf -Q 'SELECT @@VERSION' | grep -o 'Microsoft SQL Server [0-9]\+\.[0-9]\+\.[0-9]\+')
     mssql_ver_msg="MSSQL version $mssql_version detected."
     # Report success to console and error log to ensure we're aware.
-    echo "$mssql_ver_msg" && error_handler "$mssql_ver_msg"
+    error_handler "$mssql_ver_msg"
   else
-    echo "Error: Neither MySQL nor MSSQL is installed on localhost."
-    # The test fails here, and there's no point in continuing without any SQL server.
-    # It's recommended to log this error instead of directly exiting.
-    echo "Neither MySQL nor MSSQL is installed on localhost."
-  fi
-  read -p "Do you want to install MySQL 8? (y/n): " response
-  if [[ "$response" == "y" ]]; then
-    install_mysql_server
-  else
-    error_handler "No SQL installed. User cancelled MySQL 8 setup. Exiting."
-    exit 1
-  fi
-
-  # Test SQL connection for both versions
-  if ! test_sql_connection_bothversions; then
-    error_handler "SQL connection test failed."
+    error_handler "Error: Neither MySQL nor MSSQL is installed on localhost."
+    read -p "Do you want to install MySQL 8? (y/n): " response
+    if [[ "$response" == "y" ]]; then
+      install_mysql_server || { error_handler "MySQL 8 installation failed, exiting." && exit 1; }
+      error_handler "MySQL installation successful"
+      if ! backup_and_update_mysql_config; then
+        error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled" && return 0
+      fi
+    else
+      error_handler "No SQL installed. User cancelled MySQL 8 setup. Exiting."
+      exit 1
+    fi
+    check_sql_connectivity || { error_handler "SQL connection test failed. Verify IP and credentials are correct." && exit 1; }
+    error_handler "SQL connection test passed"
   fi
 }
 
+# called if mysql 8 and my.cnf detected in path /etc/mysql/
 function backup_and_update_mysql_config() {
+  #verifies /etc/mysql/my.cnf exists
   if [ -f "/etc/mysql/my.cnf" ]; then
     # Backup the original my.cnf file
-    sudo cp /etc/mysql/my.cnf /etc/mysql/my.cnf.old
-
+    sudo cp /etc/mysql/my.cnf /etc/mysql/my.cnf.old || error_handler "Detected my.cnf, but failed to back up file. Make sure script is running as sudo and try again." && exit 1
+    error_handler "successfully backed up my.cnf as my.cnf.old"
     # Check if [mysqld] is present in my.cnf
     if grep -q "\[mysqld\]" /etc/mysql/my.cnf; then
+      error_handler "my.cnf found in expected path"
       # Check if wait_timeout=259200 is present in my.cnf
       if ! grep -q "wait_timeout=259200" /etc/mysql/my.cnf; then
-        # Append the block to my.cnf
+        # Append the block to my.cnf IF it exists but the text block wasn't found
         printf "\n[mysqld]\nbind-address=0.0.0.0\nkey_buffer_size=16M\nmax_allowed_packet=1G\nthread_stack=192K\nthread_cache_size=8\ntmp_table_size=2G\nmax_heap_table_size=2G\ntable_open_cache=512\ninnodb_buffer_pool_size=12G\ninnodb_log_file_size=256M\ninnodb_log_buffer_size=12M\ninnodb_thread_concurrency=16\nmax_connections=351\nwait_timeout=259200\n" | sudo tee -a /etc/mysql/my.cnf >/dev/null
+        error_handler "Appended text block to my.cnf but header was detected. Please review file to verify no duplicates are present..."
+        sleep 5
+        sudo nano /etc/mysql/my.cnf
+        error_handler "User reviewed my.cnf and verified there are no duplicates in [mysqld], continuing."
+        return 0
       fi
     else
       # Append the entire block to my.cnf
       printf "\n[mysqld]\nbind-address=0.0.0.0\nkey_buffer_size=16M\nmax_allowed_packet=1G\nthread_stack=192K\nthread_cache_size=8\ntmp_table_size=2G\nmax_heap_table_size=2G\ntable_open_cache=512\ninnodb_buffer_pool_size=12G\ninnodb_log_file_size=256M\ninnodb_log_buffer_size=12M\ninnodb_thread_concurrency=16\nmax_connections=351\nwait_timeout=259200\n" | sudo tee -a /etc/mysql/my.cnf >/dev/null
+      error_handler "Neither [mysqld] or string match test passed; wrote changes to my.cnf"
+      return 0
     fi
   else
-    echo "The my.cnf file does not exist."
-    return 1
+    error_handler "MySQL 8 detected but /etc/mysql/my.cnf does not exist. Exiting, please make sure MySQL 8 is installed correctly."
+    exit 1
   fi
 }
 
-# Checks the SQL connection depending on the type that was detected earlier.
-# If none was detected theoretically this should never appear, but just in case...
+# called if mysql or mssql detected on server
 function test_sql_connection_bothversions() {
   if [ -n "$mysql_version" ]; then
     # Define MySQL credentials and script path
@@ -132,14 +157,12 @@ function test_sql_connection_bothversions() {
 
 # end of testing and setup block
 
-# Example of a command being called checking that a file exists, and if not creates it and proceeds
-check_file_existence "$log_file" || { create_log_file && error_handler "log_file did not exist, created log_file.txt in current working dir."; }
+# Beginning of main testing function
+check_file_existence "$log_file"
+{ create_log_file && error_handler "log_file did not exist, created log_file.txt in current working dir."; }
 check_database_service
-# test fails here if no SQL installed.
 
-# calling backup_and_update_mysql_config IF MySQL was detected so it won't error incorrectly on MSSQL servers
-# (called during the version test):
+# calling backup_and_update_mysql_config during the version test IF
+# MySQL was detected so it won't error incorrectly on MSSQL servers
 
-# backup_and_update_mysql_config || error_handler "cant find my.cnf, check MySQL installation."
-# (called if the version test passed but connection failed.)
 echo "Preflight checks complete."
