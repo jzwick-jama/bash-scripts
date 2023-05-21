@@ -75,8 +75,7 @@ function check_database_service() {
     error_handler "$mysql_ver_msg"
     echo "Checking for expected lines in my.cnf and will apply updates to it if not present..."
     # Report success to console and error log to ensure we're aware.
-    backup_and_update_mysql_config || error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled";
-    error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled"
+    backup_and_update_mysql_config
   elif systemctl is-active --quiet mssql; then
     mssql_version=$(mssql-conf -Q 'SELECT @@VERSION' | grep -o 'Microsoft SQL Server [0-9]\+\.[0-9]\+\.[0-9]\+')
     mssql_ver_msg="MSSQL version $mssql_version detected."
