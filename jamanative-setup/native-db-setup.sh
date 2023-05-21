@@ -40,53 +40,11 @@ function check_file_existence() {
 }
 
 # End of error handler
-# Your function goes between here
-# Function to generate db_schema_preflight_checks.sh file
-generate_preflight_checks_script() {
-    # Create db_schema_preflight_checks.sh file
-    cat <<EOF >db_schema_preflight_checks.sh
-#!/bin/bash
-
-# Function to decrypt and store root password
-decrypt_and_store_password() {
-    encrypted_password="\$encrypted_password"
-    root_password=\$(echo "\$encrypted_password" | base64 -d)
-}
-
-# Store SQL server IP address and port
-sql_server_ip="\$sql_server_ip"
-sql_port="\$sql_port"
-
-# Function to check SQL server type and establish test connection
-check_sql_server_type() {
-    if [[ \$sql_server_ip == *"://"* ]]; then
-        server_type="mssql"
-    else
-        server_type="mysql"
-    fi
-
-    if [[ \$server_type == "mssql" ]]; then
-        echo "Detected MSSQL server"
-        # Your MSSQL test connection command here
-    elif [[ \$server_type == "mysql" ]]; then
-        echo "Detected MySQL server"
-        # Your MySQL test connection command here
-    else
-        echo "Unknown SQL server type"
-        exit_code=18
-        ./error_handler.sh "\$exit_code"
-    fi
-}
-
-# Call the decrypt_and_store_password function
-decrypt_and_store_password
-
-# Call the check_sql_server_type function
-check_sql_server_type
-EOF
-    
-    # Set permissions for the script file
-    chmod +x db_schema_preflight_checks.sh
+install_mysql_server() {
+  mysql_install_failed=0
+  mysql_install_complete=0
+  { sudo apt-get update && sudo apt install mysql-server -y } ||   error_handler "mysql_install_failed"
+  mysql_secure_installation
 }
 
 # checks what version of My/MSSQL they have or the test fails if neither is detected.
@@ -160,8 +118,6 @@ function test_sql_connection_bothversions() {
 
 # Example of a command being called checking that a file exists, and if not creates it and proceeds
 check_file_existence "$log_file" || { create_log_file && error_handler "log_file did not exist, created log_file.txt in current working dir."; }
-generate_preflight_checks_script
-check_file_existence "$pfc_file" || error_handler "failed to create $pfc_file."
 check_database_service
 # test fails here if no SQL installed.
 
@@ -170,6 +126,5 @@ check_database_service
 
 # backup_and_update_mysql_config || error_handler "cant find my.cnf, check MySQL installation."
 # (called if the version test passed but connection failed.)
-
 echo "Success! All functions have run as expected."
 
