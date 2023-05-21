@@ -53,21 +53,30 @@ check_database_service() {
     if systemctl is-active --quiet mysql.service; then
         mysql_version=$(mysql --version | awk '{print $5}')
         mysql_ver_msg="MySQL version $mysql_version detected."
-        # reports success to console and error log to be sure we know.
-        backup_and_update_mysql_config || error_handler "cant find my.cnf, check MySQL installation."        
+        # Report success to console and error log to ensure we're aware.
+        if ! backup_and_update_mysql_config; then
+            error_handler "Cannot find my.cnf. Please check MySQL installation."
+        fi
     elif systemctl is-active --quiet mssql; then
         mssql_version=$(mssql-conf -Q 'SELECT @@VERSION' | grep -o 'Microsoft SQL Server [0-9]\+\.[0-9]\+\.[0-9]\+')
         mssql_ver_msg="MSSQL version $mssql_version detected."
-        # reports success to console and error log to be sure we know.
-        echo $mssql_ver_msg && error_handler "$mssql_ver_msg"
+        # Report success to console and error log to ensure we're aware.
+        echo "$mssql_ver_msg" && error_handler "$mssql_ver_msg"
     else
-        echo "Error: Neither MySQL nor MSSQL installed on localhost."
-        # Test absolutely fails here, with no SQL on server there's no point in continuing.
-        # for now, verify version with console or logfile. No version test yet.
+        echo "Error: Neither MySQL nor MSSQL is installed on localhost."
+        # The test fails here, and there's no point in continuing without any SQL server.
+        # It's recommended to log this error instead of directly exiting.
+        error_handler "Neither MySQL nor MSSQL is installed on localhost."
+        read -p "Install MySQL 8 on localhost? (Type Y)"
         exit 1
     fi
-    test_sql_connection_bothversions || error_handler "SQL connection test failed."
+
+    # Test SQL connection for both versions
+    if ! test_sql_connection_bothversions; then
+        error_handler "SQL connection test failed."
+    fi
 }
+
 
 backup_and_update_mysql_config() {
   if [ -f "/etc/mysql/my.cnf" ]; then
