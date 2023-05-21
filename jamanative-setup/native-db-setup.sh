@@ -1,6 +1,8 @@
 #!/bin/bash
 
 log_file="log_file.txt"
+mysql_version=""
+mssql_version=""
 
 # start of error handler as single-function test.
 
@@ -70,17 +72,18 @@ function check_sql_connectivity() {
 # if no SQL present at all offers to install MySQL 8, then performs MySQL 8 checks.
 function check_database_service() {
   if systemctl is-active --quiet mysql.service; then
-    mysql_version=$(mysql --version | awk '{print $5}')
+    mysql_version=$(mysql --version | awk '{print $5 }')
     mysql_ver_msg="Success - MySQL version $mysql_version detected."
     error_handler "$mysql_ver_msg"
     echo "Checking for expected lines in my.cnf and will apply updates to it if not present..."
     # Report success to console and error log to ensure we're aware.
-    backup_and_update_mysql_config
+    return 0
   elif systemctl is-active --quiet mssql; then
     mssql_version=$(mssql-conf -Q 'SELECT @@VERSION' | grep -o 'Microsoft SQL Server [0-9]\+\.[0-9]\+\.[0-9]\+')
     mssql_ver_msg="MSSQL version $mssql_version detected."
     # Report success to console and error log to ensure we're aware.
     error_handler "$mssql_ver_msg"
+    return 0
   else
     error_handler "Error: Neither MySQL nor MSSQL is installed on localhost."
     read -p "Do you want to install MySQL 8? (y/n): " response
@@ -90,9 +93,8 @@ function check_database_service() {
         exit 1
       }
       error_handler "Success - MySQL installation successful"
-      if ! backup_and_update_mysql_config; then
-        error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled" && return 0
-      fi
+      backup_and_update_mysql_config
+      return 0
     else
       error_handler "No SQL installed. User cancelled MySQL 8 setup. Exiting."
       exit 1
@@ -103,9 +105,9 @@ function check_database_service() {
 # called if mysql 8 and my.cnf detected in path /etc/mysql/
 function backup_and_update_mysql_config() {
   #verifies /etc/mysql/my.cnf exists
-  if [ -f "/etc/mysql/my.cnf" ]; then
+  if test -f "/etc/mysql/my.cnf"; then
     # Backup the original my.cnf file
-    sudo cp /etc/mysql/my.cnf /etc/mysql/my.cnf.old || error_handler "Detected my.cnf, but failed to back up file. Make sure script is running as sudo and try again." && exit 1
+    sudo cp /etc/mysql/my.cnf /etc/mysql/my.cnf.old
     error_handler "successfully backed up my.cnf as my.cnf.old"
     # Check if [mysqld] is present in my.cnf
     if grep -q "\[mysqld\]" /etc/mysql/my.cnf; then
@@ -134,21 +136,23 @@ function backup_and_update_mysql_config() {
 
 # called if mysql or mssql detected on server
 function test_sql_connection_bothversions() {
-  if [ -n "$mysql_version" ]; then
-    # Define MySQL credentials and script path
+  if systemctl is-active --quiet mysql.service; then
     read -p "Enter username:" MYSQL_USER
     read -p "Enter password:" MYSQL_PASSWORD
     read -p "Please type the full path and filename of the SQL Configuration Scripts. Default is ./" SCRIPT_PATH
     # Call the SQL script using the mysql command-line tool
-    mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" <"$SCRIPT_PATH"
+    result=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" <"$SCRIPT_PATH")
+    error_handler "result"
     return 0
-  elif [ -n "$mssql_version" ]; then
+    # Report success to console and error log to ensure we're aware.
+  elif systemctl is-active --quiet mssql; then
     read -p "What is the hostname of your SQL server?" SQL_SERVER
     read -p "Enter username:" SQL_USER
     read -p "Enter password:" SQL_PASSWORD
     read -p "Please type the full path and filename of the SQL Configuration Scripts. Default is ./" SCRIPT_PATH
     # Call the script using the sqlcmd command-line tool
-    sqlcmd -S "$SQL_SERVER" -U "$SQL_USER" -P "$SQL_PASSWORD" -i "$SCRIPT_PATH"
+    result=$(sqlcmd -S "$SQL_SERVER" -U "$SQL_USER" -P "$SQL_PASSWORD" -i "$SCRIPT_PATH")
+    error_handler "result"
     return 0
   else
     error_handler "Unable to test SQL connection, neither supported version was detected."
@@ -161,11 +165,9 @@ function test_sql_connection_bothversions() {
 # Beginning of main testing function
 check_file_existence "$log_file"
 { create_log_file && error_handler "log_file did not exist, created log_file.txt in current working dir."; }
+check_sql_connectivity
 check_database_service
-
-# calling backup_and_update_mysql_config during the version test IF
-# MySQL was detected so it won't error incorrectly on MSSQL servers
-check_sql_connectivity || error_handler "SQL connection test failed. Verify IP and credentials are correct." && exit 1
+backup_and_update_mysql_config
 error_handler "Success - SQL connection test passed"
 error_handler "Success - All tests passed."
 
