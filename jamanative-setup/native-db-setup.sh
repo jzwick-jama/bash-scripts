@@ -75,9 +75,8 @@ function check_database_service() {
     error_handler "$mysql_ver_msg"
     echo "Checking for expected lines in my.cnf and will apply updates to it if not present..."
     # Report success to console and error log to ensure we're aware.
-    if ! backup_and_update_mysql_config; then
-      error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled"
-    fi
+    backup_and_update_mysql_config || error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled";
+    error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled"
   elif systemctl is-active --quiet mssql; then
     mssql_version=$(mssql-conf -Q 'SELECT @@VERSION' | grep -o 'Microsoft SQL Server [0-9]\+\.[0-9]\+\.[0-9]\+')
     mssql_ver_msg="MSSQL version $mssql_version detected."
@@ -87,7 +86,10 @@ function check_database_service() {
     error_handler "Error: Neither MySQL nor MSSQL is installed on localhost."
     read -p "Do you want to install MySQL 8? (y/n): " response
     if [[ "$response" == "y" ]]; then
-      install_mysql_server || { error_handler "MySQL 8 installation failed, exiting." && exit 1; }
+      install_mysql_server || {
+        error_handler "MySQL 8 installation failed, exiting."
+        exit 1
+      }
       error_handler "Success - MySQL installation successful"
       if ! backup_and_update_mysql_config; then
         error_handler "Cannot find my.cnf. Please check MySQL installation, it may need to be reinstalled" && return 0
@@ -164,7 +166,7 @@ check_database_service
 
 # calling backup_and_update_mysql_config during the version test IF
 # MySQL was detected so it won't error incorrectly on MSSQL servers
-check_sql_connectivity || error_handler "SQL connection test failed. Verify IP and credentials are correct." && exit 1; 
+check_sql_connectivity || error_handler "SQL connection test failed. Verify IP and credentials are correct." && exit 1
 error_handler "Success - SQL connection test passed"
 error_handler "Success - All tests passed."
 
