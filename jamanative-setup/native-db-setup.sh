@@ -21,10 +21,10 @@ function create_log_file() {
 function error_handler() {
   local function_name="${FUNCNAME[1]}"
   local error_message="$1"
-  
+
   echo "Error in function: $function_name"
   echo "Error message: $error_message"
-  
+
   # Append to log file
   echo "Function: $function_name, Error: $error_message" >> "$log_file"
 }
@@ -66,7 +66,7 @@ check_database_service() {
         exit 1
     fi
     read -P ""
-    test_sql_connection_bothversions ||
+    test_sql_connection_bothversions || error_handler "SQL connection test failed."
 }
 
 backup_and_update_mysql_config() {
@@ -114,6 +114,29 @@ function test_sql_connection_bothversions() {
         error_handler "Unable to test SQL connection, neither supported version was detected."
         exit 1
 }
+function test_sql_connection_bothversions() {
+    if [ -n "$mysql_version" ]; then
+        # Define MySQL credentials and script path
+        read -p "Enter username:" MYSQL_USER
+        read -p "Enter password:" MYSQL_PASSWORD
+        read -p "Please type the full path and filename of the SQL Configuration Scripts. Default is ./" SCRIPT_PATH
+        # Call the SQL script using the mysql command-line tool
+        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" < "$SCRIPT_PATH"
+        return 0
+    elif [ -n "$mssql_version" ]; then
+        read -p "What is the hostname of your SQL server?" SQL_SERVER
+        read -p "Enter username:" SQL_USER
+        read -p "Enter password:" SQL_PASSWORD
+        read -p "Please type the full path and filename of the SQL Configuration Scripts. Default is ./" SCRIPT_PATH
+        # Call the script using the sqlcmd command-line tool
+        sqlcmd -S "$SQL_SERVER" -U "$SQL_USER" -P "$SQL_PASSWORD" -i "$SCRIPT_PATH"
+        return 0
+    else
+        error_handler "Unable to test SQL connection, neither supported version was detected."
+        exit 1
+    fi
+}
+
 # and here
 
 # Example of a command being called checking that a file exists, and if not creates it and proceeds
