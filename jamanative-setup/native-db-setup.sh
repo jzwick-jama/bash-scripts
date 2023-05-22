@@ -141,7 +141,7 @@ function test_sql_connection_bothversions() {
     read -p "Enter password:" MYSQL_PASSWORD
     read -p "Please type the full path and filename of the SQL Configuration Scripts. Default is ./" SCRIPT_PATH
     # Call the SQL script using the mysql command-line tool
-    result=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" <"$SCRIPT_PATH")
+    result=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" mysql <"$SCRIPT_PATH")
     error_handler "result"
     return 0
     # Report success to console and error log to ensure we're aware.
@@ -165,9 +165,13 @@ function test_sql_connection_bothversions() {
 # Beginning of main testing function
 check_file_existence "$log_file"
 { create_log_file && error_handler "log_file did not exist, created log_file.txt in current working dir."; }
-check_sql_connectivity
+check_sql_connectivity || error_handler "Failed to connect to database"
+error_handler "Success - SQL connection test passed"
 check_database_service
-backup_and_update_mysql_config
+
+sudo backup_and_update_mysql_config || error_handler "Failed to update mysql.cnf"
+sudo systemctl stop mysql.service || error_handler "Failed to restart mysql.service, check state of mysql.service."
+
 error_handler "Success - SQL connection test passed"
 error_handler "Success - All tests passed."
 
