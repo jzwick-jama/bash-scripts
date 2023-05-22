@@ -1,0 +1,34 @@
+name: Deploy Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Elevate to Root
+        run: |
+          echo "${{ env.ROOT_PASSWORD }}" || echo "Root access failed, check env variable."
+          sudo -S -k echo "Root access granted"
+
+      - name: Run Bash Script
+        run: |
+          if [[ "${{ env.DEPLOY_TYPE }}" == "mysql" ]]; then
+            echo "MySQL script selected. Proceeding with MySQL setup."
+            sudo bash production_script.sh || echo "Deployment failed on script. Review MYSQL syntax"
+            echo "MySQL test passed."
+          elif [[ "${{ env.DEPLOY_TYPE }}" == "mssql" ]]; then
+            echo "MySQL script selected. Proceeding with MySQL setup."
+            sudo bash staging_script.sh || echo "Deployment failed on script. Review MSSQL syntax"
+            echo "MSSQL test passed."
+          else
+            echo "Invalid SQL DEPLOY_TYPE variable value. Exiting."
+            exit 1
+          fi
