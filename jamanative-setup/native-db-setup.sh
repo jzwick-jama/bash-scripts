@@ -104,6 +104,7 @@ function check_database_service() {
 
 # called if mysql 8 and my.cnf detected in path /etc/mysql/
 function backup_and_update_mysql_config() {
+  read -p "Press any key to continue"
   #verifies /etc/mysql/my.cnf exists
   if test -f "/etc/mysql/my.cnf"; then
     # Backup the original my.cnf file
@@ -132,10 +133,12 @@ function backup_and_update_mysql_config() {
     error_handler "MySQL 8 detected but /etc/mysql/my.cnf does not exist. Exiting, please make sure MySQL 8 is installed correctly."
     exit 1
   fi
+  read -p "Press any key to continue"
 }
 
 # called if mysql or mssql detected on server
 function test_sql_connection_bothversions() {
+  echo "Test SQL connection?"
   if systemctl is-active --quiet mysql.service; then
     read -p "Enter username:" MYSQL_USER
     read -p "Enter password:" MYSQL_PASSWORD
@@ -163,17 +166,23 @@ function test_sql_connection_bothversions() {
 # end of testing and setup block
 
 # Beginning of main testing function
+read -p "Press any key to continue"
 check_file_existence "$log_file"
 { create_log_file && error_handler "log_file did not exist, created log_file.txt in current working dir."; }
+read -p "Press any key to continue"
 check_sql_connectivity || error_handler "Failed to connect to database"
+read -p "Press any key to continue"
 error_handler "Success - SQL connection test passed"
+read -p "Press any key to continue"
 check_database_service
+read -p "Press any key to continue"
 
 sudo backup_and_update_mysql_config || error_handler "Failed to update mysql.cnf"
+read -p "Press any key to continue"
 sudo systemctl stop mysql.service || error_handler "Failed to restart mysql.service, check state of mysql.service."
-
+read -p "Press any key to continue"
 error_handler "Success - SQL connection test passed"
 error_handler "Success - All tests passed."
-
+read -p "Press any key to continue"
 # prints log_file.txt to console for review
 cat log_file.txt
