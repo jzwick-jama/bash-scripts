@@ -8,13 +8,13 @@
 ### Start of functions in order of operations
 
 function uninstall_previous_docker() {
-    read -p "Uninstall previous Docker installation?  "
+    read -p "Uninstall previous Docker installation?  Hit enter to continue or Ctrl-C to quit. "
     sudo apt-get remove docker docker-engine docker.io containerd runc;
     sudo apt-get remove docker docker.io containerd runc
 }
 
 function apt_update_upgrade_autoremove() {
-    read -p "Continue, and run sudo apt-get update?"
+    read -p "Continue, and run sudo apt-get update?  Hit enter to continue or Ctrl-C to quit.  "
 
     sudo apt-get update
     apt-get full-upgrade
@@ -23,7 +23,7 @@ function apt_update_upgrade_autoremove() {
 
 function download_install_docker() {
     echo " "
-    read -p "Install docker v20.10.7?  "
+    read -p "Install docker v20.10.7?  Hit enter to continue or Ctrl-C to quit."
 
     wget https://download.docker.com/linux/static/stable/x86_64/docker-20.10.7.tgz
     tar xzvf ./docker-20.10.7.tgz
@@ -44,7 +44,7 @@ function add_docker_user_group() {
         echo "User group 'docker' already exists."
     else
         # Prompt user to create 'docker' user group
-        read -p "User group 'docker' does not exist. Do you want to create it and add your current user? (yes/no):   " response
+        read -p "User group 'docker' does not exist. Create it and add current user? (Hit enter to continue or Ctrl-C to quit.):   " response
 
         if [ "$response" = "yes" ]; then
             # Create 'docker' user group and add current user
@@ -59,12 +59,18 @@ function add_docker_user_group() {
     fi
 }
 
-echo "This script must be run as root. Hit enter to continue or Ctrl-C to quit."
+function install_docker_compose(){
+    read -p "Install docker-compose? Hit enter to continue or Ctrl-C to quit.  "
+    sudo apt-get install docker-compose
+}
+
+echo "This script must be run as root. Hit enter to continue or Ctrl-C to quit. "
 echo " "
 echo " "
 uninstall_previous_docker
 apt_update_upgrade_autoremove
 download_install_docker
 add_docker_user_group
+install_docker_compose
 echo " '"
 echo "Script complete"
