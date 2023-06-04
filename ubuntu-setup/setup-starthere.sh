@@ -13,4 +13,6 @@ read -p "Press enter to continue once you have copied your SSH key and added it 
 sudo apt-get install git -y; 
 git config --global user.email "jennazwick888@gmail.com"; 
 git config --global user.name "Jenna Zwick";
-cd ../
+echo "Go to https://gitlab.com/jennazwick888/deploy/-/runners/new and generate a new runner token"
+read -p "Hit enter when you have your token and you're ready to install it.";
+sudo ./gitlab-installer.sh;
